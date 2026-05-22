@@ -1,0 +1,154 @@
+---
+title: "R4DS"
+author: "Hadley's Book"
+format: html
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Running Code
+
+```{r}
+library(tidyverse)
+library(palmerpenguins)
+install.packages("palmerpenguins")
+library(ggplot2)
+library(ggthemes)
+install.packages("ggthemes")
+
+```
+
+# 
+
+variable = something that is quantity, quality or measurable
+
+observation = measurment made under similar conditions
+
+Value = is the state of variable when you measure it
+
+Tabular data = is a set of valies each associated with a variable and an observation
+
+```{r}
+#| echo: true
+head(penguins)
+# or you can just use glimpse()
+glimpse(penguins)
+
+
+```
+
+\
+
+```{r}
+#| echo: true
+ggplot(data = penguins,
+       mapping = aes(x = flipper_length_mm, y = body_mass_g, color = species)) +
+  geom_point() + # this line is a function of which and how to display your data --alternative is geom_bar, geom_line, etc 
+
+  geom_smooth(method = "lm") # lm is linear model 
+
+# after each + new line adds that adds complexity 
+# the bare minimum for this is ggplot with mapping aes, and geom_point() which includes all the points together 
+# the geom_smooth adds smoothing line per data cluster 
+# this can change to one smooth lne or multiple per request on geom_point( inside here specify) 
+# see example below - same code - modified inside geom_point(----)
+
+ggplot(data = penguins,
+       mapping = aes(x = flipper_length_mm, y = body_mass_g)) +
+  geom_point(mapping = aes(color = species, shape = species)) + 
+
+  geom_smooth(method = "lm") # lm is linear model 
+
+
+# now title naming and all --- how to do 
+# with labs ( title - above, subtitle = below title , x and y have their related place and color )
+
+ggplot(data = penguins,
+       mapping = aes(x = flipper_length_mm, y = body_mass_g)) +
+  geom_point() + # this line is a function of which and how to display your data --alternative is geom_bar, geom_line, etc 
+
+  geom_smooth(method = "lm") + # lm is linear model 
+
+  labs(
+    title = "BMI and flipper length",
+    subtitle = "Dimensions for Adelie, Chinstrap, and Gentoo penguins",
+    x = "Flipper length(mm)", y = "Body mass(g)",
+    color = "Species", shape = "Species"
+  ) +
+  scale_color_colorblind()
+
+  
+
+```
+
+```{r}
+#1.4 visualizing distribution 
+
+ggplot(penguins, aes(x = species)) +
+  geom_bar()
+
+ggplot(penguins, aes(x = fct_infreq(species))) + 
+  geom_bar()
+
+# 1.42
+
+# wide as f width of bar 
+ggplot(penguins, aes(x = body_mass_g)) + 
+  geom_histogram(binwidth = 2000)
+
+# reasonable 
+ggplot(penguins, aes(x = body_mass_g)) + 
+  geom_histogram(binwidth = 200)
+
+# reminds me of spaghetti (uncooked)
+ggplot(penguins, aes(x = body_mass_g)) + 
+  geom_histogram(binwidth = 20)
+
+# lets do density plot instead of geom_bar 
+
+ggplot(penguins, aes(x = body_mass_g)) + 
+  geom_density()
+
+
+ggplot(penguins, aes(x = body_mass_g, color = species)) + 
+  geom_density(linewidth = .5 ) 
+
+ggplot(penguins, aes(x = body_mass_g, color = species)) + 
+  geom_density(linewidth = 1.0 ) 
+
+ggplot(penguins, aes(x = body_mass_g, color = species)) + 
+  geom_density(linewidth = 10 ) 
+
+# -- you can fill inside the color with alpha -- called opacity i think 
+
+ggplot(penguins, aes(x = body_mass_g, color = species, fill = species)) + 
+  geom_density(alpha = 0.5)  
+
+
+
+# box plot - ya like box plot ? 
+ggplot(penguins, aes(x = species, y = body_mass_g)) + 
+  geom_boxplot()
+
+```
+
+```{r}
+
+ggplot(penguins, aes(x = island, fill = species)) +
+  geom_bar()
+
+ggplot(penguins, aes(x = island, fill = species)) +
+  geom_bar(position = "fill")
+
+
+ggplot(penguins, aes(x = island, fill = species)) +
+  geom_bar(position = "fill") +
+  labs(y = "proportion")
+
+
+
+
+```
