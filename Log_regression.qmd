@@ -1,0 +1,189 @@
+---
+title: "Logistic_regression"
+author: "Kam"
+format: html
+editor: visual
+---
+
+```{r}
+
+library(glmnet)
+library(Hmisc)
+library(rms)
+library(MASS)
+library(tidyverse)
+#--------lets start 
+#kam
+#11/9/26
+set.seed(2026)
+
+birth <- MASS::birthwt
+head(birth)
+glimpse(birth)
+
+```
+
+```{r}
+
+# Reload original data
+birth <- MASS::birthwt
+
+# Validate original values
+stopifnot(
+  nrow(birth) == 189L,
+  all(birth$low %in% c(0, 1)),
+  all(birth$race %in% 1:3),
+  all(birth$ptl >= 0)
+)
+
+# Recode variables
+birth$low_class <- factor(birth$low,
+                          levels = c(0, 1),
+                          labels = c("No", "Yes"))
+
+birth$race <- factor(birth$race,
+                     levels = c(1, 2, 3),
+                     labels = c("White", "Black", "Other"))
+
+birth$ptl <- factor(birth$ptl > 0,
+                    levels = c(FALSE, TRUE),
+                    labels = c("No", "Yes"))
+
+# Validate and summarize
+features <- c("low", "low_class", "age", "lwt",
+              "race", "smoke", "ptl")
+
+stopifnot(!anyNA(birth[, features]))
+
+print(table(birth$low_class))
+Hmisc::describe(birth[, features])
+
+fit_spline <- rms::lrm(low ~ age + rcs(lwt, 4) + smoke + ptl,
+ data = birth, x = TRUE, y = TRUE)
+```
+
+```{r}
+
+set.seed(2026)
+
+K <- 5L
+fold <- integer(nrow(birth))
+
+for (g in c(0L, 1L)) {
+  idx <- which(birth$low == g)
+  fold[idx] <- sample(rep(seq_len(K), length.out = length(idx)))
+}
+
+print(table(fold, birth$low_class))
+
+form <- low_class ~ age + lwt + smoke + ptl
+
+p_glm <- p_lda <- p_qda <- p_lasso <- rep(NA_real_, nrow(birth))
+
+X <- model.matrix(~ age + lwt + smoke + ptl,
+                  data = birth)[, -1, drop = FALSE]
+
+y <- birth$low
+
+for (k in seq_len(K)) {
+
+  tr <- which(fold != k)
+  te <- which(fold == k)
+
+  # Logistic regression
+  mod_glm <- glm(
+    form,
+    data = birth[tr, , drop = FALSE],
+    family = binomial()
+  )
+
+  p_glm[te] <- as.numeric(
+    predict(mod_glm, newdata = birth[te, , drop = FALSE],
+            type = "response")
+  )
+
+  # Linear discriminant analysis
+  mod_lda <- MASS::lda(
+    form,
+    data = birth[tr, , drop = FALSE]
+  )
+
+  p_lda[te] <- predict(
+    mod_lda,
+    newdata = birth[te, , drop = FALSE]
+  )$posterior[, "Yes"]
+
+  # Quadratic discriminant analysis
+  mod_qda <- MASS::qda(
+    form,
+    data = birth[tr, , drop = FALSE]
+  )
+
+  p_qda[te] <- predict(
+    mod_qda,
+    newdata = birth[te, , drop = FALSE]
+  )$posterior[, "Yes"]
+
+  # LASSO logistic regression
+  set.seed(2026 + k)
+
+  mod_lasso <- glmnet::cv.glmnet(
+    X[tr, , drop = FALSE],
+    y[tr],
+    family = "binomial",
+    alpha = 1,
+    nfolds = 5,
+    type.measure = "deviance",
+    standardize = TRUE
+  )
+
+  p_lasso[te] <- as.numeric(
+    predict(
+      mod_lasso,
+      newx = X[te, , drop = FALSE],
+      s = "lambda.min",
+      type = "response"
+    )
+  )
+}
+
+stopifnot(
+  all(is.finite(c(p_glm, p_lda, p_qda, p_lasso)))
+)
+```
+
+```{r}
+
+score <- function(p, y, threshold = 0.5) {
+  stopifnot(
+    length(p) == length(y),
+    all(is.finite(p)),
+    all(p >= 0 & p <= 1),
+    all(y %in% c(0, 1))
+  )
+
+  eps <- 1e-12
+  q <- pmin(pmax(p, eps), 1 - eps)
+  pred <- as.integer(p >= threshold)
+
+  c(
+    AUC = unname(Hmisc::somers2(p, y)["C"]),
+    Brier = mean((p - y)^2),
+    LogLoss = -mean(y * log(q) + (1 - y) * log1p(-q)),
+    Accuracy = mean(pred == y),
+    Sensitivity = mean(pred[y == 1] == 1),
+    Specificity = mean(pred[y == 0] == 0)
+  )
+}
+
+comparison <- rbind(
+  Logistic = score(p_glm, y),
+  LDA      = score(p_lda, y),
+  QDA      = score(p_qda, y),
+  LASSO    = score(p_lasso, y)
+)
+
+print(round(comparison, 3))
+
+rms::val.prob(p_glm, y, pl = TRUE, g = 5)
+```
