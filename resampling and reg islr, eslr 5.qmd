@@ -1,0 +1,154 @@
+---
+title: "islr_eslr_5"
+author: "Kam"
+format: pdf
+editor: visual
+---
+
+## Quarto
+
+```{r}
+
+library(MASS)
+library(Hmisc)
+library(rms)
+library(boot)
+library(glmnet)
+
+d <- MASS::birthwt
+d$smoke <- factor(d$smoke, levels = c(0, 1), labels = c("No", "Yes"))
+d$race <- factor(d$race, levels = c(1, 2, 3), labels = c("White", "Black", "Other"))
+stopifnot(nrow(d) == 189, !anyNA(d[, c("bwt", "age", "lwt", "smoke", "race")]))
+Hmisc::describe(d[, c("bwt", "age", "lwt")])
+```
+
+```{r}
+
+d <- MASS::birthwt
+d$smoke <- factor(d$smoke, levels = c(0, 1), labels = c("No", "Yes"))
+d$race <- factor(d$race, levels = c(1, 2, 3), labels = c("White", "Black", "Other"))
+stopifnot(nrow(d) == 189, !anyNA(d[, c("bwt", "age", "lwt", "smoke", "race")]))
+Hmisc::describe(d[, c("bwt", "age", "lwt")])
+```
+
+```{r}
+
+set.seed(2026)
+train_id <- sample(seq_len(nrow(d)), size = floor(0.70 * nrow(d)))
+train <- d[train_id, ]
+test <- d[-train_id, ]
+```
+
+```{r}
+linear_fit <- lm(bwt ~ age + lwt + smoke, data = train)
+summary(linear_fit)
+```
+
+```{r}
+quadratic_fit <- lm(bwt ~ age + lwt + I(lwt^2) + smoke, data = train)
+summary(quadratic_fit)
+```
+
+```{r}
+# 3 degrees of freedom; training knots reused by predict().
+spline_fit <- lm(bwt ~ age + splines::ns(lwt, df = 3) + smoke, data = train)
+summary(spline_fit)
+```
+
+```{r}
+new_people <- data.frame(
+  age = rep(median(train$age), 100),
+  lwt = seq(min(train$lwt), max(train$lwt), length.out = 100),
+  smoke = factor(rep("No", 100), levels = levels(train$smoke))
+)
+plot(train$lwt, train$bwt, pch = 16, cex = 0.5,
+     xlab = "Maternal weight (lb)", ylab = "Birth weight (g)")
+lines(new_people$lwt, predict(linear_fit, newdata = new_people), col = "black", lwd = 2)
+lines(new_people$lwt, predict(quadratic_fit, newdata = new_people), col = "blue", lwd = 2)
+lines(new_people$lwt, predict(spline_fit, newdata = new_people), col = "red", lwd = 2)
+legend("topleft", c("Linear", "Quadratic", "Natural spline"),
+       col = c("black", "blue", "red"), lty = 1, bty = "n")
+```
+
+```{r}
+cv_linear_fit <- glm(bwt ~ age + lwt + smoke, data = train, family = gaussian())
+cv_quadratic_fit <- glm(bwt ~ age + lwt + I(lwt^2) + smoke,
+                        data = train, family = gaussian())
+```
+
+```{r}
+set.seed(2026)
+cv_linear <- boot::cv.glm(train, cv_linear_fit, K = 5)$delta[1]
+set.seed(2026)
+cv_quadratic <- boot::cv.glm(train, cv_quadratic_fit, K = 5)$delta[1]
+c(Linear_MSE = cv_linear, Quadratic_MSE = cv_quadratic)
+
+
+x_train <- model.matrix(bwt ~ age + lwt + smoke, data = train)[, -1, drop = FALSE]
+x_test <- model.matrix(bwt ~ age + lwt + smoke, data = test)[, -1, drop = FALSE]
+y_train <- train$bwt
+
+
+
+```
+
+```{r}
+
+
+
+set.seed(2026)
+ridge_cv <- glmnet::cv.glmnet(x_train, y_train, family = "gaussian",
+                             alpha = 0, nfolds = 5, type.measure = "mse")
+set.seed(2026)
+lasso_cv <- glmnet::cv.glmnet(x_train, y_train, family = "gaussian",
+                             alpha = 1, nfolds = 5, type.measure = "mse")
+par(mfrow = c(1, 2))
+plot(ridge_cv, main = "Ridge: 5-fold CV")
+plot(lasso_cv, main = "Lasso: 5-fold CV")
+par(mfrow = c(1, 1))
+coef(ridge_cv, s = "lambda.min")
+coef(lasso_cv, s = "lambda.min")
+
+# 9. FINAL TEST-SET EVALUATION (ISLR 5)
+# Compare models on the same untouched observations.
+pred_linear <- predict(linear_fit, newdata = test)
+pred_quadratic <- predict(quadratic_fit, newdata = test)
+pred_spline <- predict(spline_fit, newdata = test)
+pred_ridge <- as.numeric(predict(ridge_cv, newx = x_test, s = "lambda.min"))
+pred_lasso <- as.numeric(predict(lasso_cv, newx = x_test, s = "lambda.min"))
+
+mse <- c(
+  Linear = mean((test$bwt - pred_linear)^2),
+  Quadratic = mean((test$bwt - pred_quadratic)^2),
+  Spline = mean((test$bwt - pred_spline)^2),
+  Ridge = mean((test$bwt - pred_ridge)^2),
+  Lasso = mean((test$bwt - pred_lasso)^2)
+)
+round(data.frame(MSE = mse, RMSE = sqrt(mse)), 2)
+# Do not select and then report the minimum test MSE as unbiased performance.
+
+# 10. RMS: SPLINE EFFECTS AND ANOVA (ESL 5)
+# Refit on training data for diagnostics; use x/y for bootstrap validation.
+dd <- rms::datadist(train)
+options(datadist = "dd")
+rms_spline <- rms::ols(bwt ~ age + rcs(lwt, 4) + smoke,
+                       data = train, x = TRUE, y = TRUE)
+print(rms_spline)
+anova(rms_spline)  # Nonlinear row tests departure from linearity
+plot(rms::Predict(rms_spline, lwt),
+     xlab = "Maternal weight (lb)", ylab = "Predicted birth weight (g)")
+
+# 11. RESIDUAL DIAGNOSTICS (OLS)
+par(mfrow = c(2, 2))
+plot(linear_fit, which = c(1, 2, 3, 5))
+par(mfrow = c(1, 1))
+
+# 12. BOOTSTRAP MODEL VALIDATION (ISLR 5)
+set.seed(2026)
+rms::validate(rms_spline, method = "boot", B = 200)
+
+# 13. BOOTSTRAP CI FOR MEAN BIRTH WEIGHT (ISLR 5)
+set.seed(2026)
+Hmisc::smean.cl.boot(train$bwt, B = 1000, conf.int = 0.95)
+
+```
