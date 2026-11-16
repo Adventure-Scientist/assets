@@ -1,0 +1,415 @@
+---
+title: "ISLR6_penalty"
+author: "Kam"
+format: pdf
+editor: visual
+---
+
+## 
+
+```{r}
+# data on HITTERS ISLR2 and salary 
+
+# prep, train , test split,  ols, regression diagnostics, fwd and bwd selection, ridge and lasso , pca, partial least square , test set model comparison , bootstrap internal validation 
+
+library(ISLR2)
+library(Hmisc)
+library(rms)
+#install.packages("leaps")
+library(leaps)
+library(glmnet)
+library(pls)
+
+# data d <- on Hitters from ISLR2
+
+d <- ISLR2::Hitters
+dim(d)
+names(d)
+sum(is.na(d$Salary))
+d <- na.omit(d)
+dim(d)
+colSums(is.na(d))
+
+```
+
+#explore the data and lets do some data wrangling
+
+```{r}
+Hmisc::describe(d)
+summary(d$Salary)
+
+par(mfrow = c(2,2))
+hist(d$Salary, 
+     main = "Salary Distribution",
+     xlab = "Salary ($1,000s)")
+
+plot(d$Hits, d$Salary,
+     main = "Hits vs Salary",
+     xlab = "Hits", ylab = "Salary")
+
+plot(d$Years, d$Salary,
+     main =  "Expereince vs. Salary",
+     xlab = "Years", ylab = "Salary")
+
+boxplot(Salary ~ League, data = d,
+        main = "Salary by League", 
+        ylab = "Salary")
+
+par(mfrow = c(1,1))
+
+
+# correlation among continous variable 
+
+Hmisc::rcorr(as.matrix(d[, c("Salary", "Hits", "AtBat", "Years", "CAtBat")])
+             )
+
+
+```
+
+```{r}
+
+set.seed(2026)
+
+train_id <- sample(
+  seq_len(nrow(d)),
+  size = floor(0.70 * nrow(d))
+)
+
+train <- d[train_id, ]
+test <- d[-train_id, ]
+
+nrow(train)
+nrow(test)
+
+
+lm_small <- lm(
+  Salary ~ Hits + HmRun + Walks + Years, 
+  data = train
+)
+
+summary(lm_small)
+
+
+lm_full <- lm(Salary ~ ., data = train)
+
+summary(lm_small)$r.squared
+summary(lm_full)$r.squared
+
+AIC(lm_small, lm_full)
+BIC(lm_small, lm_full)
+par(mfrow = c(2,3))
+plot(lm_small, which = 1:6)
+```
+
+```{r}
+
+# rms regression modeling and strategies and diagnostics 
+
+dd_hitters <- rms::datadist(train)
+options(datadist = "dd_hitters")
+
+rms_fit <- rms::ols(
+  Salary ~ Hits + HmRun + Walks + Years, 
+  data = train, 
+  x = TRUE,
+  y = TRUE
+)
+
+print(rms_fit)
+anova(rms_fit)
+plot(rms::Predict(rms_fit, Hits))
+plot(rms::Predict(rms_fit, Years))
+
+# Examine the best models with up to 10 predictors
+best_fit <- leaps::regsubsets(
+Salary ~ .,
+data = train,
+nvmax = 10,
+method = "exhaustive"
+)
+
+
+best_results <- summary(best_fit)
+
+# Compare model sizes
+best_results$rsq
+best_results$adjr2
+best_results$cp
+best_results$bic
+
+best_size <- which.min(best_results$bic)
+best_size
+
+best_coef <- coef(best_fit, id = best_size)
+best_coef
+
+par(mfrow = c(2, 2))
+
+plot(best_results$rsq, type = "b",
+xlab = "Number of predictors",
+ylab = "R-squared")
+plot(best_results$adjr2, type = "b",
+xlab = "Number of predictors",
+ylab = "Adjusted R-squared")
+plot(best_results$cp, type = "b",
+xlab = "Number of predictors",
+ylab = "Mallows Cp")
+plot(best_results$bic, type = "b",
+xlab = "Number of predictors",
+ylab = "BIC")
+par(mfrow = c(1, 1))
+# Which predictors were selected?
+plot(best_fit, scale = "bic")
+```
+
+```{r}
+
+# forward and backward selection 
+
+forward_fit <- leaps::regsubsets(
+  Salary ~ ., 
+  data = train,
+  nvmax = 10,
+  method = "forward"
+)
+
+backward_fit <- leaps::regsubsets(
+  Salary ~ .,
+  data = train, 
+  nvmax = 10,
+  method = "backward"
+)
+forward_size <- which.min(summary(forward_fit)$bic)
+backward_size <- which.min(summary(backward_fit)$bic)
+
+
+# Examine the selected coefficients
+coef(forward_fit, id = forward_size)
+coef(backward_fit, id = backward_size)
+# Compare the selected model sizes
+c(Best = best_size,
+Forward = forward_size,
+Backward = backward_size)
+
+
+
+# glmnet needs numeric matrices instead of a formula.
+# model.matrix automatically encodes categorical predictors.
+x_train <- model.matrix(
+Salary ~ ., data = train
+)[, -1, drop = FALSE]
+x_test <- model.matrix(
+Salary ~ ., data = test
+)[, -1, drop = FALSE]
+y_train <- train$Salary
+y_test <- test$Salary
+dim(x_train)
+dim(x_test)
+# Common CV fold assignments for ridge and lasso
+set.seed(2026)
+fold_id <- sample(
+rep(1:5, length.out = nrow(train))
+)
+
+
+
+
+
+
+```
+
+```{r}
+
+cv_ridge <- glmnet::cv.glmnet(
+  x = x_train,
+  y = y_train,
+  family = "gaussian",
+  alpha = 0,
+  foldid = fold_id,
+  type.measure = "mse",
+  standardize = TRUE
+)
+plot(cv_ridge)
+
+cv_ridge$lambda.min
+
+
+cv_ridge$lambda.min
+# More regularized one-SE choice
+cv_ridge$lambda.1se
+# Ridge coefficients
+coef(cv_ridge, s = "lambda.min")
+# Coefficient paths
+plot(cv_ridge$glmnet.fit, xvar = "lambda")
+
+
+
+```
+
+```{r}
+
+# alpha = 1 specifies LASSO
+# LASSO can set coefficients exactly to zero.
+cv_lasso <- glmnet::cv.glmnet(
+x = x_train,
+y = y_train,
+family = "gaussian",
+alpha = 1,
+foldid = fold_id,
+type.measure = "mse",
+standardize = TRUE
+)
+plot(cv_lasso)
+cv_lasso$lambda.min
+cv_lasso$lambda.1se
+# Selected coefficients
+coef(cv_lasso, s = "lambda.min")
+# Count nonzero predictor coefficients
+sum(
+as.vector(coef(cv_lasso, s = "lambda.min"))[-1] != 0
+)
+# LASSO coefficient paths
+plot(cv_lasso$glmnet.fit, xvar = "lambda")
+
+```
+
+```{r}
+# 11. PRINCIPAL COMPONENTS REGRESSION --------------------
+# Use the same numeric predictors as glmnet.
+# Scale predictors within the model.
+pcr_train <- data.frame(
+Salary = y_train,
+x_train,
+check.names = FALSE
+)
+pcr_test <- data.frame(
+x_test,
+check.names = FALSE
+)
+set.seed(2026)
+pcr_fit <- pls::pcr(
+Salary ~ .,
+data = pcr_train,
+scale = TRUE,
+ncomp = 10,
+validation = "CV",
+segments = 5
+)
+summary(pcr_fit)
+# CV prediction error by number of components
+validationplot(pcr_fit, val.type = "MSEP")
+# Choose a parsimonious number of components
+pcr_ncomp <- pls::selectNcomp(
+pcr_fit,
+method = "onesigma",
+plot = FALSE
+)
+pcr_ncomp
+```
+
+```{r}
+
+
+# 12. PARTIAL LEAST SQUARES -------------------------------
+set.seed(2026)
+pls_fit <- pls::plsr(
+Salary ~ .,
+data = pcr_train,
+scale = TRUE,
+ncomp = 10,
+validation = "CV",
+segments = 5
+)
+summary(pls_fit)
+validationplot(pls_fit, val.type = "MSEP")
+pls_ncomp <- pls::selectNcomp(
+pls_fit,
+method = "onesigma",
+plot = FALSE
+)
+pls_ncomp
+```
+
+```{r}
+
+# 13. FINAL TEST-SET COMPARISON --------------------------
+# All tuning above used training data only.
+# Now evaluate the models on test, once.
+# OLS predictions
+pred_small <- predict(lm_small, newdata = test)
+pred_full <- predict(lm_full, newdata = test)
+# Best-subset predictions
+# Extract exactly the columns in the selected model.
+subset_test_matrix <- model.matrix(
+Salary ~ ., data = test
+)
+pred_subset <- as.numeric(
+subset_test_matrix[, names(best_coef), drop = FALSE] %*%
+best_coef
+)
+# Ridge predictions
+pred_ridge <- as.numeric(
+predict(cv_ridge,
+newx = x_test,
+s = "lambda.min")
+)
+# LASSO predictions
+pred_lasso <- as.numeric(
+predict(cv_lasso,
+newx = x_test,
+s = "lambda.min")
+)
+# PCR and PLS predictions
+pred_pcr <- as.numeric(
+predict(pcr_fit,
+newdata = pcr_test,
+ncomp = pcr_ncomp)
+)
+pred_pls <- as.numeric(
+predict(pls_fit,
+newdata = pcr_test,
+ncomp = pls_ncomp)
+)
+# Compare test MSE
+
+results <- data.frame(
+Model = c("OLS small", "OLS full", "Best subset",
+"Ridge", "LASSO", "PCR", "PLS"),
+MSE = c(
+mean((y_test - pred_small)^2),
+mean((y_test - pred_full)^2),
+mean((y_test - pred_subset)^2),
+mean((y_test - pred_ridge)^2),
+mean((y_test - pred_lasso)^2),
+mean((y_test - pred_pcr)^2),
+mean((y_test - pred_pls)^2)
+)
+)
+# Convert to RMSE (same salary units as the outcome)
+results$RMSE <- sqrt(results$MSE)
+# Rank by test RMSE
+results <- results[order(results$RMSE), ]
+print(results)
+# Visual comparison
+barplot(
+results$RMSE,
+names.arg = results$Model,
+las = 2,
+ylab = "Test RMSE (salary in $1,000s)",
+main = "Model Comparison"
+)
+
+
+# This validates the specified rms OLS model.
+# It does NOT validate the entire model-selection pipeline.
+set.seed(2026)
+validation <- rms::validate(
+rms_fit,
+method = "boot",
+B = 200
+)
+print(validation)
+# Look at optimism-corrected R2 and MSE,
+# plus the optimism-corrected calibration slope.
+
+```
